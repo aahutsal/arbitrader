@@ -1,0 +1,39 @@
+
+#+begin_src plantuml :file ./images/1.png :exports results
+together {
+ cloud "World of Centralization" {
+  class KuCoin << Exchange >>
+  class Okx << Exchange >>
+ }
+cloud "World of decentralization" {
+ class DODO << DEX >>
+ class ParaSwap << DEX >>
+ class 0x << DEX >>
+}
+node worker1  << Application Server >> {
+
+}
+worker1 -> KuCoin :use
+worker1 -> Okx
+
+}                                                                                                   
+#+end_src
+
+#+results: 
+[[file:./images/1.png]]
+
+#+begin_src plantuml :file ./images/3.png :exports results
+start
+if (IOC executed fully) then (yes)
+  :process allj\ndiagrams;
+else (no)
+  :process only
+  __sequence__ and __activity__ diagrams;
+endif
+
+stop
+  
+#+end_src
+
+#+results: 
+[[file:./images/3.png]]
