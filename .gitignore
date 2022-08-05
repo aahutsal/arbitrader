@@ -107,3 +107,4 @@ dist
 /build/
 /yarn.lock
 /package-lock.json
+/*.debug
