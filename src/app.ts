@@ -1,35 +1,35 @@
+import { StrategyRunner } from '../lib/strategy'
 import ccxt, { Exchange } from 'ccxt'
 import dotenv from 'dotenv'
-import { getSwapTransaction, Networks } from '../lib/swapper'
 dotenv.config({ path: '../.env' })
 console.log(process.env.OKX_API_KEY)
-
 
 let kucoin: Exchange, okx: Exchange
 
 let initExchanges = () => {
     [kucoin, okx] = [new ccxt.kucoin({
         apiKey: process.env.KUCOIN_API_KEY,
-        secret: process.env.KUCOIN_SECRET
+        secret: process.env.KUCOIN_SECRET,
+        password: process.env.KUCOIN_PASSWORD
     }), new ccxt.okx({
         apiKey: process.env.OKX_API_KEY,
-        secret: process.env.OKX_SECRET
+        secret: process.env.OKX_SECRET,
+        password: process.env.OKX_PASSWORD
     })]
 }
-export async function app() {
-    const USER_ADDRESS = '0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE'
-    const srcToken = 'BNB'
-    const destToken = 'USDT'
-    const srcAmount = '0.1'
-    const minAmount = '0.1'
-    const networkID = Networks.BSC
-    const slippage = 2;
-    const userAddress = USER_ADDRESS;
+initExchanges()
+kucoin.loadMarkets().then(() => {
+    kucoin.fetchBalance().then(balance => console.log(JSON.stringify(balance)))
+    console.log(kucoin.version, okx.version)
+})
+okx.loadMarkets().then(() => {
+    okx.fetchBalance().then(balance => console.log(JSON.stringify(balance)))
+    console.log(kucoin.version, okx.version)
+})
 
-    return getSwapTransaction({ srcToken, destToken, srcAmount, networkID, slippage, userAddress })
-}
 
-app().then(console.log)
+StrategyRunner.run([okx, kucoin], 'cex-ioc-dex')
+
 
 // const ps = new ParaSwap(56 as NetworkID)
 // ps.getBalance('0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE', 'BNB').then(console.log)

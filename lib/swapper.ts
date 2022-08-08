@@ -2,30 +2,7 @@ import { ParaSwap, NetworkID, Token, APIError } from "paraswap";
 
 import BigNumber from "bignumber.js";
 import { OptimalRate, SwapSide } from "paraswap-core";
-import winston from "winston";
-
-const logger = winston.createLogger({
-    level: 'info',
-    format: winston.format.json(),
-    defaultMeta: { service: 'user-service' },
-    transports: [
-        //
-        // - Write all logs with importance level of `error` or less to `error.debug`
-        // - Write all logs with importance level of `info` or less to `combined.debug`
-        //
-        new winston.transports.File({ filename: 'error.debug', level: 'error' }),
-        new winston.transports.File({ filename: 'combined.debug' }),
-    ],
-});
-//
-// If we're not in production then log to the `console` with the format:
-// `${info.level}: ${info.message} JSON.stringify({ ...rest }) `
-//
-if (process.env.NODE_ENV !== 'production') {
-    logger.add(new winston.transports.Console({
-        format: winston.format.simple(),
-    }));
-}
+import { logger } from './logger'
 
 const USER_ADDRESS =
   /* process.env.USER_ADDRESS */ "0xe7804c37c13166fF0b37F5aE0BB07A3aEbb6e245";
@@ -47,7 +24,7 @@ export const web3ProividersURLs: Partial<Record<number, string>> = {
 };
 
 
-export function getToken(symbol: Symbol, networkID = Networks.BSC): Token {
+export function getToken(symbol: Symbol, networkID): Token {
     const token: any = (tokens as Token[]).filter((t: Token) => t.symbol === symbol)
 
     if (!token)
@@ -190,12 +167,11 @@ export async function getSwapTransaction({
     networkID,
     slippage = SLIPPAGE,
     userAddress,
-    swapper,
     ...rest
 }: GetSwapTxInput): Promise<TransactionParams> {
     try {
         logger.debug('NetworkID', networkID)
-        const ps = createSwapper(networkID);
+        const ps = rest.swapper || createSwapper(networkID);
         tokens = await ps.getTokens();
         logger.debug('srcTokenSymbol', srcTokenSymbol)
 
