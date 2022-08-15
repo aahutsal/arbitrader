@@ -14,3 +14,7 @@ git pull origin dev
 npm i
 npx ts-node src/app.ts --help
 ```
+
+### Configuration
+- Rename `.env.sample` to `.env`
+- Change configuration options. To perform actual arbitrages you should include private keys (to access your wallet on a particular blockchain) and API Keys, Secrets and Passwords to access your wallets on CEXes. 
