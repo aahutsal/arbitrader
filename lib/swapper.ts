@@ -1,15 +1,14 @@
 import { ParaSwap, NetworkID, Token, APIError } from "paraswap";
 
+import ccxt, { Exchange } from 'ccxt'
+
 import BigNumber from "bignumber.js";
 import { OptimalRate, SwapSide } from "paraswap-core";
 import { logger } from './logger'
 
-const USER_ADDRESS =
-  /* process.env.USER_ADDRESS */ "0xe7804c37c13166fF0b37F5aE0BB07A3aEbb6e245";
-const PARTNER = "chucknorris";
-const SLIPPAGE = 1; // 1%
+const USER_ADDRESS = process.env.USER_ADDRESS;
+const NONE_PARTNER = "chucknorris";
 
-let tokens: APIError | Token[] = [];
 
 export enum Networks {
     MAINNET = 1,
@@ -22,16 +21,6 @@ export const web3ProividersURLs: Partial<Record<number, string>> = {
     [Networks.BSC]: process.env.BSC_PROVIDER_URL,
     [Networks.POLYGON]: process.env.POLYGON_PROVIDER_URL
 };
-
-
-export function getToken(symbol: Symbol, networkID): Token {
-    const token: any = (tokens as Token[]).filter((t: Token) => t.symbol === symbol)
-
-    if (!token)
-        throw new Error(`Token ${symbol} not available on network ${networkID}`);
-    return token[0];
-}
-
 /**
  * @type ethereum address
  */
@@ -54,14 +43,27 @@ export interface TransactionParams {
     gas?: NumberAsString;
     chainId: number;
 }
+export interface GetSwapTxInput {
+    srcToken: Symbol;
+    destToken: Symbol;
+    srcAmount: NumberAsString; // in srcToken denomination
+    networkID: number;
+    slippage?: number;
+    partner?: string;
+    userAddress: Address;
+    swapper?: DEXSwapper;
+    swapSide?: SwapSide;
+    receiver?: Address;
+}
 
-export interface Swapper {
+export interface ISwapper {
     getRate(params: {
         srcToken: Token,
         destToken: Token,
         srcAmount: NumberAsString;
         userAddress: Address;
         partner?: string;
+        swapSide?: SwapSide;
     }): Promise<OptimalRate>;
     buildSwap(params: {
         srcToken: Token,
@@ -74,68 +76,64 @@ export interface Swapper {
         partner?: string;
     }): Promise<TransactionParams>;
     getTokens(): Promise<APIError | Token[]>;
+    getToken(symbol: Symbol): Promise<Token>;
 }
 
-export function createSwapper(networkID: number, apiURL?: string): Swapper {
-    const paraswap = new ParaSwap(
-        networkID as NetworkID,
-        apiURL,
-        web3ProividersURLs[networkID]
-    );
+export interface IContext {
+    exchanges: Exchange[],
+    market: string,
+    network: NetworkID,
+    swapSide?: SwapSide,
+    slippage?: number,
+    difference?: number,
+    aggregatorScanInterval: number
+}
 
-    const getRate: Swapper["getRate"] = async ({
-        srcToken,
-        destToken,
-        srcAmount,
-        userAddress,
-        partner = PARTNER
-    }) => {
+export class DEXSwapper implements ISwapper {
+    private tokens: APIError | Token[] = []
+    private paraswap: ParaSwap
+    private Ready: Promise<any>
+    private context: IContext
 
-        const priceRouteOrError = await paraswap.getRate(
-            srcToken.address,
-            destToken.address,
-            srcAmount,
-            userAddress,
-            SwapSide.SELL,
-            { partner },
-            srcToken.decimals,
-            destToken.decimals
+    constructor(context: IContext, apiURL?: string) {
+        // initializing tokens
+        this.context = context
+        this.paraswap = new ParaSwap(
+            this.context.network,
+            apiURL,
+            web3ProividersURLs[this.context.network]
         );
+        this.Ready = this.getTokens().then((tokens: Token[]) => {
+            logger.debug('Loading token list');
+            this.tokens = tokens
+            logger.debug('Token list loaded. Size:' + tokens.length);
+        });
 
-        logger.debug('priceRouteOrError', priceRouteOrError);
+    }
+    public async getTokens() {
+        return this.paraswap.getTokens()
+    }
+    public async getToken(symbol: Symbol): Promise<Token> {
+        await this.Ready;
+        const token: any = (this.tokens as Token[]).filter((t: Token) => t.symbol === symbol)
 
-        if ("message" in priceRouteOrError) {
-            throw new Error(priceRouteOrError.message);
-        }
-
-        return priceRouteOrError;
-    };
-
-    const getTokens: Swapper["getTokens"] = async () => {
-        return await paraswap.getTokens()
+        if (!token)
+            throw new Error(`Token ${symbol} not available on network ${this.context.network}`);
+        return token[0];
     }
 
-    const buildSwap: Swapper["buildSwap"] = async ({
-        srcToken,
-        destToken,
-        srcAmount,
-        minAmount,
-        priceRoute,
-        userAddress,
-        receiver,
-        partner
-    }) => {
-        const transactionRequestOrError = await paraswap.buildTx(
+    public async buildSwap({ srcToken, destToken, srcAmount, minAmount, priceRoute, userAddress, ...rest }) {
+        const transactionRequestOrError = await this.paraswap.buildTx(
             srcToken.address,
             destToken.address,
             srcAmount,
             minAmount,
             priceRoute,
             userAddress,
-            partner,
+            rest.partner,
             undefined,
             undefined,
-            receiver
+            rest.receiver
         );
 
         if ("message" in transactionRequestOrError) {
@@ -143,78 +141,89 @@ export function createSwapper(networkID: number, apiURL?: string): Swapper {
         }
 
         return transactionRequestOrError as TransactionParams;
-    };
+    }
 
-    return { getRate, buildSwap, getTokens };
-}
-
-export interface GetSwapTxInput {
-    srcToken: Symbol;
-    destToken: Symbol;
-    srcAmount: NumberAsString; // in srcToken denomination
-    networkID: number;
-    slippage?: number;
-    partner?: string;
-    userAddress: Address;
-    swapper?: Swapper;
-    receiver?: Address;
-}
-
-export async function getSwapTransaction({
-    srcToken: srcTokenSymbol,
-    destToken: destTokenSymbol,
-    srcAmount: _srcAmount,
-    networkID,
-    slippage = SLIPPAGE,
-    userAddress,
-    ...rest
-}: GetSwapTxInput): Promise<TransactionParams> {
-    try {
-        logger.debug('NetworkID', networkID)
-        const ps = rest.swapper || createSwapper(networkID);
-        tokens = await ps.getTokens();
-        logger.debug('srcTokenSymbol', srcTokenSymbol)
-
-        const srcToken = getToken(srcTokenSymbol, networkID);
-        const destToken = getToken(destTokenSymbol, networkID);
-        logger.debug('srcToken, destToken', srcToken, destToken)
-
-        srcToken.decimals = 18
-        const srcAmount = new BigNumber(_srcAmount)
+    public async getRate({ srcToken, destToken, srcAmount, userAddress, partner = process.env.PARTNER || NONE_PARTNER, swapSide = this.context.swapSide || SwapSide.SELL }) {
+        const _srcAmount = new BigNumber(srcAmount)
             .times(10 ** srcToken.decimals)
             .toFixed(0);
 
-        logger.debug('srcAmount', srcAmount)
-
-        logger.debug('srcToken, destToken', srcToken, destToken)
-        const priceRoute = await ps.getRate({
-            srcToken,
-            destToken,
-            srcAmount,
-            userAddress
-        });
-
-        logger.debug('priceRoute', priceRoute)
-
-        const minAmount = new BigNumber(priceRoute.destAmount)
-            .times(1 - slippage / 100)
-            .toFixed(0);
-
-        const transactionRequest = await ps.buildSwap({
-            srcToken,
-            destToken,
-            srcAmount,
-            minAmount,
-            priceRoute,
+        const priceRouteOrError = await this.paraswap.getRate(
+            srcToken.address,
+            destToken.address,
+            _srcAmount,
             userAddress,
-            ...rest
-        });
+            swapSide = this.context.swapSide,
+            { partner },
+            srcToken.decimals,
+            destToken.decimals
+        );
 
-        logger.debug("TransactionRequest", transactionRequest);
+        if ("message" in priceRouteOrError) {
+            throw new Error(priceRouteOrError.message);
+        }
 
-        return transactionRequest;
-    } catch (error) {
-        console.error(error);
-        throw error;
+        return priceRouteOrError;
     }
+
+    public async getSwapTransaction({
+        srcToken: srcTokenSymbol,
+        destToken: destTokenSymbol,
+        srcAmount: _srcAmount,
+        networkID = this.context.network || parseInt(process.env.NETWORK_ID) as NetworkID,
+        swapSide = (this.context.swapSide || process.env.SWAP_SIDE).toUpperCase() === 'BUY' ? SwapSide.BUY : SwapSide.SELL,
+        slippage = new BigNumber(this.context.slippage || process.env.SLIPPAGE).div(100).toNumber(), // converting percents to
+        userAddress,
+        ...rest
+    }: GetSwapTxInput): Promise<TransactionParams> {
+        try {
+            logger.debug('NetworkID', this.context.network)
+            logger.debug('srcTokenSymbol', srcTokenSymbol)
+
+            const srcToken: Token = await this.getToken(srcTokenSymbol);
+            const destToken: Token = await this.getToken(destTokenSymbol);
+            logger.debug('srcToken, destToken', srcToken, destToken)
+
+            srcToken.decimals = 18
+            const srcAmount = new BigNumber(_srcAmount)
+                .times(10 ** srcToken.decimals)
+                .toFixed(0);
+
+            logger.debug('srcAmount', srcAmount)
+
+            logger.debug('srcToken, destToken', srcToken, destToken)
+            const priceRoute = await this.getRate({
+                srcToken,
+                destToken,
+                srcAmount,
+                userAddress
+            });
+
+            logger.debug('priceRoute', priceRoute)
+
+            const minAmount = new BigNumber(priceRoute.destAmount)
+                .times(1 - slippage / 100)
+                .toFixed(0);
+
+            const transactionRequest = await this.buildSwap({
+                srcToken,
+                destToken,
+                srcAmount,
+                minAmount,
+                priceRoute,
+                userAddress,
+                ...rest
+            });
+
+            logger.debug("TransactionRequest", transactionRequest);
+
+            return transactionRequest;
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    }
+
 }
+
+export { Token }
