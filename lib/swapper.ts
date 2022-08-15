@@ -5,7 +5,7 @@ import ccxt, { Exchange } from 'ccxt'
 import BigNumber from "bignumber.js";
 import { OptimalRate, SwapSide } from "paraswap-core";
 import { logger } from './logger'
-import ethers, { Wallet } from "ethers"
+import { ethers, Wallet } from "ethers"
 
 const NONE_PARTNER = "chucknorris";
 
@@ -97,7 +97,7 @@ export class DEXSwapper implements ISwapper {
     private paraswap: ParaSwap
     private Ready: Promise<any>
     private context: IContext
-    private signer: Wallet
+    private wallet: Wallet
     private senderAddress: string
 
     constructor(context: IContext, apiURL?: string) {
@@ -109,14 +109,14 @@ export class DEXSwapper implements ISwapper {
             web3ProividersURLs[this.context.network]
         );
 
-        this.signer = ethers.Wallet.fromMnemonic(process.env.WALLET_MNEMONIC)
+        this.wallet = ethers.Wallet.fromMnemonic(process.env.WALLET_MNEMONIC)
 
         this.Ready = this.getTokens().then((tokens: Token[]) => {
             logger.debug('Loading token list');
             this.tokens = tokens
 
             logger.debug('Token list loaded. Size:' + tokens.length);
-        }).then(() => this.signer.getAddress().then((address: string) => this.senderAddress = address))
+        }).then(() => this.wallet.getAddress().then((address: string) => this.senderAddress = address))
 
     }
 
