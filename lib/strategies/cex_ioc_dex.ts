@@ -4,9 +4,11 @@ import { CronJob } from 'cron'
 
 import { logger } from '../logger'
 //import { BigNumber } from 'ethers'
-import BigNumber from "bignumber.js";
 
-const USER_ADDRESS = '0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE'
+import BigNumber from "bignumber.js";
+import { SwapSide } from 'paraswap-core';
+
+
 
 export class Strategy implements IStrategy {
     private isShuttingDown: boolean = false
@@ -25,45 +27,64 @@ export class Strategy implements IStrategy {
         this.job = new CronJob(
             `*/${this.context.aggregatorScanInterval} * * * * *`,
             () => {
-                logger.debug('tick')
-                this.runPrivate().then(() => logger.debug('tock'))
+                this.runPrivate()
             },
             null,
             true,
             'Europe/Kiev',
         );
-    }
-    private async runPrivate(): Promise<void> {
-        //const tx = await getSwapTransaction({ srcToken, destToken, srcAmount, networkID, slippage, userAddress, swapper });
-        const pair = this.context.market.split('/')
-        const srcToken: Token = await this.swapper.getToken(pair[0])
-        const destToken: Token = await this.swapper.getToken(pair[1])
-        const srcAmount = '0.1'
-        const userAddress = USER_ADDRESS;
-        logger.debug('srcToken', srcToken)
-        logger.debug(this.context.exchanges)
 
-        const rate = await Promise.all([
-            this.swapper.getRate({ srcToken, destToken, srcAmount, userAddress }),
-            ...this.context.exchanges.map(it => it.fetchTickers([this.context.market]))
-        ])
-        const result = rate.slice(1).map(it => {
-            return {
-                bid: new BigNumber(srcAmount).times(rate[1][this.context.market].bid),
-                ask: new BigNumber(srcAmount).times(rate[1][this.context.market].ask)
-            }
-        })
-        console.log('Running %d iteration. \n%s\n%s\n%s', this.iteration++,
-            //JSON.stringify(rate, null, 2)
-            new BigNumber(rate[0].destAmount).div(10 ** rate[0].destDecimals),
-            ...result,
-        )
-        if (this.iteration > 10) {
+        process.on('SIGTERM', () => {
             logger.debug('Shutting down')
 
             this.shutdown()
             this.waitForShutdown()
-        }
+        });
+
+    }
+    private async runPrivate(): Promise<void> {
+        //const tx = await getSwapTransaction({ srcToken, destToken, srcAmount, networkID, slippage, userAddress, swapper });
+        let pair = this.context.market.split('/')
+        let srcToken: Token = await this.swapper.getToken(pair[0])
+        let destToken: Token = await this.swapper.getToken(pair[1])
+        let srcAmount = '0.1'
+        let userAddress = this.swapper.getSenderAddress()
+        let swapSide = SwapSide.SELL
+        logger.debug('srcToken', srcToken)
+        //logger.debug(this.context.exchanges.map(it => it.name))
+        const rate = await Promise.all([
+            this.swapper.getRate({ srcToken, destToken, srcAmount, userAddress }).then((resp1) => {
+                let token = srcToken
+                srcToken = destToken
+                destToken = token
+                srcAmount = resp1.destAmount
+                swapSide = SwapSide.BUY
+                return this.swapper.getRate({ srcToken, destToken, srcAmount, userAddress, swapSide }).then((resp2) => {
+                    return { resp1, resp2 }
+                })
+            }),
+            ...this.context.exchanges.map(it => it.fetchTickers([this.context.market]))
+        ])
+        const result = rate.slice(2).map(it => {
+            return {
+                bid: new BigNumber(srcAmount).times(it[this.context.market].bid),
+                ask: new BigNumber(srcAmount).times(it[this.context.market].ask)
+            }
+        })
+        console.log('Running %d iteration. \n%s\n%s\n%s', this.iteration++,
+            // new BigNumber(rate[0].destAmount).div(10 ** rate[0].destDecimals),
+            // new BigNumber(rate[1].destAmount).div(10 ** rate[1].destDecimals),
+            JSON.stringify(rate[0]),
+            JSON.stringify(rate[1]),
+            ...result,
+        )
+
+        // if (this.iteration > 10) {
+        //     logger.debug('Shutting down')
+
+        //     this.shutdown()
+        //     this.waitForShutdown()
+        // }
     }
 
     public waitForShutdown(): void {

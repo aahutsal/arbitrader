@@ -5,8 +5,8 @@ import ccxt, { Exchange } from 'ccxt'
 import BigNumber from "bignumber.js";
 import { OptimalRate, SwapSide } from "paraswap-core";
 import { logger } from './logger'
+import ethers, { Wallet } from "ethers"
 
-const USER_ADDRESS = process.env.USER_ADDRESS;
 const NONE_PARTNER = "chucknorris";
 
 
@@ -77,16 +77,19 @@ export interface ISwapper {
     }): Promise<TransactionParams>;
     getTokens(): Promise<APIError | Token[]>;
     getToken(symbol: Symbol): Promise<Token>;
+    getSenderAddress(): string
 }
 
 export interface IContext {
     exchanges: Exchange[],
     market: string,
     network: NetworkID,
-    swapSide?: SwapSide,
-    slippage?: number,
-    difference?: number,
-    aggregatorScanInterval: number
+    swapSide: SwapSide,
+    slippage: number,
+    difference: number,
+    aggregatorScanInterval: number,
+    gasFee: number,
+    minVolume: number
 }
 
 export class DEXSwapper implements ISwapper {
@@ -94,6 +97,8 @@ export class DEXSwapper implements ISwapper {
     private paraswap: ParaSwap
     private Ready: Promise<any>
     private context: IContext
+    private signer: Wallet
+    private senderAddress: string
 
     constructor(context: IContext, apiURL?: string) {
         // initializing tokens
@@ -103,13 +108,22 @@ export class DEXSwapper implements ISwapper {
             apiURL,
             web3ProividersURLs[this.context.network]
         );
+
+        this.signer = ethers.Wallet.fromMnemonic(process.env.WALLET_MNEMONIC)
+
         this.Ready = this.getTokens().then((tokens: Token[]) => {
             logger.debug('Loading token list');
             this.tokens = tokens
+
             logger.debug('Token list loaded. Size:' + tokens.length);
-        });
+        }).then(() => this.signer.getAddress().then((address: string) => this.senderAddress = address))
 
     }
+
+    public getSenderAddress(): string {
+        return this.senderAddress
+    }
+
     public async getTokens() {
         return this.paraswap.getTokens()
     }
@@ -148,12 +162,15 @@ export class DEXSwapper implements ISwapper {
             .times(10 ** srcToken.decimals)
             .toFixed(0);
 
+        const [srcTokenAddress, destTokenAddress] = [srcToken.address, destToken.address]
+
+        logger.debug(JSON.stringify({ swapSide, srcTokenAddress, destTokenAddress, srcAmount }, null, 2))
         const priceRouteOrError = await this.paraswap.getRate(
             srcToken.address,
             destToken.address,
             _srcAmount,
             userAddress,
-            swapSide = this.context.swapSide,
+            swapSide,
             { partner },
             srcToken.decimals,
             destToken.decimals

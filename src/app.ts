@@ -55,6 +55,11 @@ const argv = yargs
             type: 'number',
             default: 1
         },
+        gasFee: {
+            description: 'Gas Fee we offer to network when sending swap',
+            type: 'number',
+            default: 0.25
+        },
         minVolume: {
             description: 'Minimum volume which is sold/purchased',
             type: 'number',
