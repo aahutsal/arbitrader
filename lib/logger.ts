@@ -10,7 +10,7 @@ const logger = winston.createLogger({
         // - Write all logs with importance level of `info` or less to `combined.debug`
         //
         new winston.transports.File({ filename: 'error.debug', level: 'error' }),
-        new winston.transports.File({ filename: 'combined.debug' }),
+        new winston.transports.File({ filename: 'combined.debug', format: winston.format.json() }),
     ],
 });
 //
@@ -19,7 +19,10 @@ const logger = winston.createLogger({
 //
 if (process.env.NODE_ENV !== 'production') {
     logger.add(new winston.transports.Console({
-        format: winston.format.combine(winston.format.colorize(), winston.format.simple())
+        //////////////////////////////////////////////////////////////////////////////////////
+        // format: winston.format.combine(winston.format.colorize(), winston.format.json()) //
+        //////////////////////////////////////////////////////////////////////////////////////
+        format: winston.format.simple() //
     }));
 }
 

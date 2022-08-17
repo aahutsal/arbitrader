@@ -76,7 +76,7 @@ export interface ISwapper {
         partner?: string;
     }): Promise<TransactionParams>;
     getTokens(): Promise<APIError | Token[]>;
-    getToken(symbol: Symbol): Promise<Token>;
+    getToken(symbolOrAddress: Symbol | Address): Promise<Token>;
     getSenderAddress(): string
 }
 
@@ -116,6 +116,7 @@ export class DEXSwapper implements ISwapper {
             this.tokens = tokens
 
             logger.debug('Token list loaded. Size:' + tokens.length);
+            console.log('NON ERC20 TOKENS', tokens.filter(it => it.connectors.length > 1))
         }).then(() => this.wallet.getAddress().then((address: string) => this.senderAddress = address))
 
     }
@@ -127,12 +128,20 @@ export class DEXSwapper implements ISwapper {
     public async getTokens() {
         return this.paraswap.getTokens()
     }
-    public async getToken(symbol: Symbol): Promise<Token> {
-        await this.Ready;
-        const token: any = (this.tokens as Token[]).filter((t: Token) => t.symbol === symbol)
 
-        if (!token)
-            throw new Error(`Token ${symbol} not available on network ${this.context.network}`);
+    public async getToken(symbolOrAddress: Symbol | Address): Promise<Token> {
+        await this.Ready;
+        const [symbol, address] = symbolOrAddress.split(',')
+
+        const token: any = (this.tokens as Token[]).filter((t: Token) => (address ? t.address === symbolOrAddress : t.symbol === symbol))
+        if (token.length === 0) // found nothing
+            token.push(new Token(address, 18, symbol, "ERC20", "", ["ETH"], this.context.network))
+
+        logger.debug(JSON.stringify({ symbol, address }))
+        logger.debug(JSON.stringify({ symbolOrAddress, token }, null, 2))
+
+        if (token.length === 0) // found nothing
+            throw new Error(`Token ${symbolOrAddress} is not available on network ${this.context.network}`);
         return token[0];
     }
 
@@ -157,17 +166,16 @@ export class DEXSwapper implements ISwapper {
         return transactionRequestOrError as TransactionParams;
     }
 
-    public async getRate({ srcToken, destToken, srcAmount, userAddress, partner = process.env.PARTNER || NONE_PARTNER, swapSide = this.context.swapSide || SwapSide.SELL }) {
+    public async getRate({ srcToken, destToken, srcAmount, userAddress, partner = process.env.PARTNER || NONE_PARTNER, swapSide = this.context.swapSide || SwapSide.SELL }): Promise<OptimalRate> {
         const _srcAmount = new BigNumber(srcAmount)
             .times(10 ** srcToken.decimals)
             .toFixed(0);
 
         const [srcTokenAddress, destTokenAddress] = [srcToken.address, destToken.address]
-
-        logger.debug(JSON.stringify({ swapSide, srcTokenAddress, destTokenAddress, srcAmount }, null, 2))
+        logger.debug(JSON.stringify({ swapSide, srcTokenAddress, destTokenAddress, srcAmount, userAddress }, null, 2))
         const priceRouteOrError = await this.paraswap.getRate(
-            srcToken.address,
-            destToken.address,
+            srcTokenAddress,
+            destTokenAddress,
             _srcAmount,
             userAddress,
             swapSide,
@@ -194,12 +202,12 @@ export class DEXSwapper implements ISwapper {
         ...rest
     }: GetSwapTxInput): Promise<TransactionParams> {
         try {
-            logger.debug('NetworkID', this.context.network)
-            logger.debug('srcTokenSymbol', srcTokenSymbol)
+            //logger.debug('NetworkID', this.context.network)
+            //logger.debug('srcTokenSymbol', JSON.stringify(srcTokenSymbol))
 
             const srcToken: Token = await this.getToken(srcTokenSymbol);
             const destToken: Token = await this.getToken(destTokenSymbol);
-            logger.debug('srcToken, destToken', srcToken, destToken)
+            //logger.debug('srcToken, destToken', JSON.stringify({ srcToken, destToken }))
 
             srcToken.decimals = 18
             const srcAmount = new BigNumber(_srcAmount)
@@ -232,7 +240,7 @@ export class DEXSwapper implements ISwapper {
                 ...rest
             });
 
-            logger.debug("TransactionRequest", transactionRequest);
+            logger.debug('TransactionRequest', transactionRequest);
 
             return transactionRequest;
         } catch (error) {

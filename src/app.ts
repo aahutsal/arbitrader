@@ -2,6 +2,8 @@ import { StrategyRunner } from '../lib/strategy'
 import ccxt, { Exchange } from 'ccxt'
 import dotenv from 'dotenv'
 import { logger } from '../lib/logger'
+import fs from 'fs'
+import _ from 'lodash'
 
 dotenv.config({ path: './.env' })
 let exchanges: Exchange[] = []
@@ -70,40 +72,35 @@ const argv = yargs
     .alias('help', 'h').argv;
 console.log(argv);
 
-// if (argv._.includes('run')) {
-//     logger.info(`Running strategy ${argv.strategy} on ${argv.cex} using ${argv.aggregator} aggregator and ${argv.market} market`);
-// }
-
-// if (argv._.includes('lyr')) {
-// }
-// let initExchanges = () => {
-//     [allExchanges.kucoin, allExchanges.okx] = [new ccxt.kucoin({
-//         apiKey: process.env.KUCOIN_API_KEY,
-//         secret: process.env.KUCOIN_SECRET,
-//         password: process.env.KUCOIN_PASSWORD
-//     }), new ccxt.okx({
-//         apiKey: process.env.OKX_API_KEY,
-//         secret: process.env.OKX_SECRET,
-//         password: process.env.OKX_PASSWORD
-//     })]
-// }
-// initExchanges()
-
 exchanges = argv['cex'].map(cex_name => {
     const cex_name_upper = cex_name.toUpperCase()
+    console.log(cex_name_upper);
     return new ccxt[cex_name]({
         apiKey: process.env[`${cex_name_upper}_API_KEY`],
         secret: process.env[`${cex_name_upper}_SECRET`],
         password: process.env[`${cex_name_upper}_PASSWORD`]
     })
 })
-exchanges.forEach(it => it.fetchBalance().then(balance => console.log(JSON.stringify(balance))))
+
+Promise.all(exchanges.map(async (ex: Exchange) =>
+    Promise.all([
+        ex.fetchBalance(),
+        ex.loadMarkets()])
+        .catch((err) => logger.error(err))
+        .then(result => {
+            const extra = {
+                exchange: ex.id,
+                balance: result[0],
+                markets: result[1]
+            }
+            ex.extra = extra
+            return extra;
+        })))
+    .then((arrExtra) => {
+        fs.writeFileSync(`${argv["cex"].join('_')}_markets.json`, JSON.stringify(arrExtra))
+        return arrExtra
+    })
+
 
 StrategyRunner.run({ exchanges, ...argv }, 'cex-ioc-dex')
-
-
-// const ps = new ParaSwap(56 as NetworkID)
-// ps.getBalance('0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE', 'BNB').then(console.log)
-// ps.getRate('BNB', 'USDT', '100000000000000000', '0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE', SwapSide.BUY)
-//     .then(r => console.log(JSON.stringify(r, null, 2)));
 
