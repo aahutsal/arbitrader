@@ -37,10 +37,10 @@ const argv = yargs
             type: 'number',
             default: 56
         },
-        coinsOfInterest: {
+        tokensOfInterest: {
             description: 'Arbitrage coin(s)',
             type: 'array',
-            default: ['WAL, 0xd306c124282880858a634e7396383ae58d37c79c', 'TRX, 0x16d1f1cb22057381e3abace8276f1924e67c5cf9']
+            default: process.env.TOKENS_OF_INTEREST?.split(',').map((it: string) => it.trim())
         },
         strategy: {
             description: 'Strategy name to run',
@@ -106,9 +106,11 @@ Promise.all(exchanges.map(async (ex: Exchange) =>
                 // finding intersection
                 // omitting market name form of "BTC/USD:USD" and "BTC/USD:USD-221230"
                 .filter(name => (name.indexOf(':') === -1)
+                    // including market names with tokensOfInterest in it
                     && (_.intersection(name.split('/'),
                         tokensOfInterest.map(it => it.symbol)).length > 0)
                     &&
+                    // omitting market names witout stablecoin in it
                     (_.intersection(name.split('/'),
                         process.env.STABLECOINS.split(',')).length > 0)
                 ))
