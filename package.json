@@ -21,6 +21,7 @@
   "homepage": "https://github.com/aahutsal/arbitrader#readme",
   "dependencies": {
     "@types/cron": "^2.0.0",
+    "@types/lodash": "^4.14.183",
     "ccxt": "^1.92.20",
     "cron": "^2.1.0",
     "dotenv": "^16.0.1",

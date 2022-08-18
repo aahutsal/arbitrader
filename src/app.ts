@@ -1,21 +1,26 @@
 import { StrategyRunner } from '../lib/strategy'
 import ccxt, { Exchange } from 'ccxt'
 import dotenv from 'dotenv'
+import { Token, NetworkID } from 'paraswap'
+
+dotenv.config({ path: './.env' })
+
 import { logger } from '../lib/logger'
 import fs from 'fs'
 import _ from 'lodash'
 
-dotenv.config({ path: './.env' })
+
 let exchanges: Exchange[] = []
 
 import yargs from 'yargs'
 import { SwapSide } from 'paraswap-core'
+
 const argv = yargs
     .command('run', 'Runs arbitrage strategy', {
         cex: {
             description: 'CEX(es) to use ',
             type: 'array',
-            default: ['okx', 'kucoin']
+            default: process.env.EXCHANGES?.split(',').map((it: string) => it.trim())
         },
         aggregator: {
             description: 'Aggregator to use',
@@ -32,10 +37,10 @@ const argv = yargs
             type: 'number',
             default: 56
         },
-        market: {
-            description: 'Market name',
-            type: 'string',
-            default: 'BNB/USDC'
+        coinsOfInterest: {
+            description: 'Arbitrage coin(s)',
+            type: 'array',
+            default: ['WAL, 0xd306c124282880858a634e7396383ae58d37c79c', 'TRX, 0x16d1f1cb22057381e3abace8276f1924e67c5cf9']
         },
         strategy: {
             description: 'Strategy name to run',
@@ -81,26 +86,58 @@ exchanges = argv['cex'].map(cex_name => {
         password: process.env[`${cex_name_upper}_PASSWORD`]
     })
 })
+const tokensOfInterest = argv['coins-of-interest'].map(it => it.split(',') as string[]).map((splitedToken: string[]) => new Token(splitedToken[1], parseInt(splitedToken[2]), splitedToken[0], undefined, undefined, undefined, parseInt(splitedToken[3]) as NetworkID))
+
+
+
+logger.info('Using these symbols of interest: ' + JSON.stringify(tokensOfInterest.map(it => it.symbol)))
+logger.info('Using these contracts of interest: ' + JSON.stringify(tokensOfInterest.map(it => it.address)))
 
 Promise.all(exchanges.map(async (ex: Exchange) =>
     Promise.all([
-        ex.fetchBalance(),
-        ex.loadMarkets()])
-        .catch((err) => logger.error(err))
+        ex.fetchBalance()
+            .catch((err) => { logger.error(err); return err })
+            .then(balances => {
+                return { balances }
+            }),
+        ex.loadMarkets()
+            .catch((err) => { logger.error(err); return err })
+            .then(markets => Object.getOwnPropertyNames(markets)
+                // finding intersection
+                // omitting market name form of "BTC/USD:USD" and "BTC/USD:USD-221230"
+                .filter(name => _.intersection(name.split(':')[0].split('/'),
+                    tokensOfInterest.map(it => it.symbol)).length > 0)
+            )
+            .then(markets => {
+                return {
+                    markets
+                }
+            })
+    ])
+        .catch((err) => { logger.error(err); return err })
         .then(result => {
-            const extra = {
-                exchange: ex.id,
-                balance: result[0],
-                markets: result[1]
+            const id = ex.id
+            //const [balances, markets] = { ...result }
+            return {
+                [id]:
+                    _.values(result).reduce((acc, val) => Object.assign(acc, val), {})
+
             }
-            ex.extra = extra
-            return extra;
-        })))
+        })
+))
     .then((arrExtra) => {
-        fs.writeFileSync(`${argv["cex"].join('_')}_markets.json`, JSON.stringify(arrExtra))
+        fs.writeFileSync(`${argv["cex"].join('_')}_markets.json`, JSON.stringify(arrExtra.reduce((acc, val) => Object.assign(acc, val), {})))
         return arrExtra
     })
+// .then((extra) => {
+//     exchanges.forEach(it => {
+//         logger.debug(`For exchange ${it.id} found extra: ${JSON.stringify(extra[it.id]).length}`)
+//     })
+//StrategyRunner.run({ exchanges, ...argv }, 'cex-ioc-dex')
+//    })
 
 
-StrategyRunner.run({ exchanges, ...argv }, 'cex-ioc-dex')
+
+
+
 
