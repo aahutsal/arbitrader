@@ -40,7 +40,7 @@ const argv = yargs
         tokensOfInterest: {
             description: 'Arbitrage coin(s)',
             type: 'array',
-            default: process.env.TOKENS_OF_INTEREST?.split(',').map((it: string) => it.trim())
+            default: process.env.TOKENS_OF_INTEREST?.split(' ').map((it: string) => it.trim())
         },
         strategy: {
             description: 'Strategy name to run',
@@ -86,7 +86,7 @@ exchanges = argv['cex'].map(cex_name => {
         password: process.env[`${cex_name_upper}_PASSWORD`]
     })
 })
-const tokensOfInterest = argv['coins-of-interest'].map(it => it.split(',') as string[]).map((splitedToken: string[]) => new Token(splitedToken[1], parseInt(splitedToken[2]), splitedToken[0], undefined, undefined, undefined, parseInt(splitedToken[3]) as NetworkID))
+const tokensOfInterest = argv['tokens-of-interest'].map(it => it.split(',') as string[]).map((splitedToken: string[]) => new Token(splitedToken[1], parseInt(splitedToken[2]), splitedToken[0], undefined, undefined, undefined, parseInt(splitedToken[3]) as NetworkID))
 
 
 
