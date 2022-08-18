@@ -105,9 +105,13 @@ Promise.all(exchanges.map(async (ex: Exchange) =>
             .then(markets => Object.getOwnPropertyNames(markets)
                 // finding intersection
                 // omitting market name form of "BTC/USD:USD" and "BTC/USD:USD-221230"
-                .filter(name => _.intersection(name.split(':')[0].split('/'),
-                    tokensOfInterest.map(it => it.symbol)).length > 0)
-            )
+                .filter(name => (name.indexOf(':') === -1)
+                    && (_.intersection(name.split('/'),
+                        tokensOfInterest.map(it => it.symbol)).length > 0)
+                    &&
+                    (_.intersection(name.split('/'),
+                        process.env.STABLECOINS.split(',')).length > 0)
+                ))
             .then(markets => {
                 return {
                     markets
