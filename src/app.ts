@@ -126,7 +126,7 @@ Promise.all(exchanges.map(async (ex: Exchange) =>
         })
 ))
     .then((arrExtra) => {
-        fs.writeFileSync(`${argv["cex"].join('_')}_markets.json`, JSON.stringify(arrExtra.reduce((acc, val) => Object.assign(acc, val), {})))
+        fs.writeFileSync(`${argv["cex"].join('_')}_markets.json`, JSON.stringify(arrExtra.reduce((acc, val) => Object.assign(acc, val), {}), null, 2))
         return arrExtra
     })
 // .then((extra) => {
