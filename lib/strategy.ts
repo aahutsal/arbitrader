@@ -1,5 +1,3 @@
-import { Exchange } from 'ccxt'
-
 interface IStrategy {
     run(): void
     shutdown(): void
@@ -7,10 +5,10 @@ interface IStrategy {
 }
 
 class StrategyRunner {
-    public static run(exchanges: any, strategyName: string): IStrategy {
+    public static run(context: any, strategyName: string): IStrategy {
         const normalizedStrategyName: string = strategyName.split('-').join('_')
         const Strategy: any = require(`./strategies/${normalizedStrategyName}`).Strategy;
-        const strategy: IStrategy = Strategy.newInstance(exchanges)
+        const strategy: IStrategy = Strategy.newInstance(context)
         strategy.run()
         return strategy
     }

@@ -1,14 +1,19 @@
 import { ParaSwap, NetworkID, Token, APIError } from "paraswap";
 
-import ccxt, { Exchange } from 'ccxt'
+import ccxt from 'ccxt'
+import { IContext } from "./context";
 
 import BigNumber from "bignumber.js";
 import { OptimalRate, SwapSide } from "paraswap-core";
 import { logger } from './logger'
 import { ethers, Wallet } from "ethers"
 
-const NONE_PARTNER = "chucknorris";
+import dotenv from 'dotenv'
+dotenv.config({
+    override: true
+})
 
+const NONE_PARTNER = "chucknorris";
 
 export enum Networks {
     MAINNET = 1,
@@ -80,18 +85,6 @@ export interface ISwapper {
     getSenderAddress(): string
 }
 
-export interface IContext {
-    exchanges: Exchange[],
-    market: string,
-    network: NetworkID,
-    swapSide: SwapSide,
-    slippage: number,
-    difference: number,
-    aggregatorScanInterval: number,
-    gasFee: number,
-    minVolume: number
-}
-
 export class DEXSwapper implements ISwapper {
     private tokens: APIError | Token[] = []
     private paraswap: ParaSwap
@@ -109,13 +102,14 @@ export class DEXSwapper implements ISwapper {
             web3ProividersURLs[this.context.network]
         );
 
+        logger.debug(`WALLET_MNEMONIC: ${process.env.WALLET_MNEMONIC}`)
         this.wallet = ethers.Wallet.fromMnemonic(process.env.WALLET_MNEMONIC)
 
         this.Ready = this.getTokens().then((tokens: Token[]) => {
             logger.debug('Loading token list');
             this.tokens = tokens
 
-            logger.debug('Token list loaded. Size:' + tokens.length);
+            logger.debug(`Token list loaded. Size: ${tokens.length}`);
             console.log('NON ERC20 TOKENS', tokens.filter(it => it.connectors.length > 1))
         }).then(() => this.wallet.getAddress().then((address: string) => this.senderAddress = address))
 
@@ -135,10 +129,7 @@ export class DEXSwapper implements ISwapper {
 
         const token: any = (this.tokens as Token[]).filter((t: Token) => (address ? t.address === symbolOrAddress : t.symbol === symbol))
         if (token.length === 0) // found nothing
-            token.push(new Token(address, 18, symbol, "ERC20", "", ["ETH"], this.context.network))
-
-        logger.debug(JSON.stringify({ symbol, address }))
-        logger.debug(JSON.stringify({ symbolOrAddress, token }, null, 2))
+            token.push(new Token(address, 18, symbol, undefined, undefined, undefined, this.context.network))
 
         if (token.length === 0) // found nothing
             throw new Error(`Token ${symbolOrAddress} is not available on network ${this.context.network}`);
@@ -172,7 +163,6 @@ export class DEXSwapper implements ISwapper {
             .toFixed(0);
 
         const [srcTokenAddress, destTokenAddress] = [srcToken.address, destToken.address]
-        logger.debug(JSON.stringify({ swapSide, srcTokenAddress, destTokenAddress, srcAmount, userAddress }, null, 2))
         const priceRouteOrError = await this.paraswap.getRate(
             srcTokenAddress,
             destTokenAddress,
@@ -202,21 +192,18 @@ export class DEXSwapper implements ISwapper {
         ...rest
     }: GetSwapTxInput): Promise<TransactionParams> {
         try {
-            //logger.debug('NetworkID', this.context.network)
-            //logger.debug('srcTokenSymbol', JSON.stringify(srcTokenSymbol))
 
             const srcToken: Token = await this.getToken(srcTokenSymbol);
             const destToken: Token = await this.getToken(destTokenSymbol);
-            //logger.debug('srcToken, destToken', JSON.stringify({ srcToken, destToken }))
 
             srcToken.decimals = 18
             const srcAmount = new BigNumber(_srcAmount)
                 .times(10 ** srcToken.decimals)
                 .toFixed(0);
 
-            logger.debug('srcAmount', srcAmount)
+            logger.debug({ srcAmount })
 
-            logger.debug('srcToken, destToken', srcToken, destToken)
+            logger.debug({ srcToken, destToken })
             const priceRoute = await this.getRate({
                 srcToken,
                 destToken,
@@ -224,7 +211,7 @@ export class DEXSwapper implements ISwapper {
                 userAddress
             });
 
-            logger.debug('priceRoute', priceRoute)
+            logger.debug({ priceRoute })
 
             const minAmount = new BigNumber(priceRoute.destAmount)
                 .times(1 - slippage / 100)
@@ -244,7 +231,7 @@ export class DEXSwapper implements ISwapper {
 
             return transactionRequest;
         } catch (error) {
-            console.error(error);
+            logger.error(error);
             throw error;
         }
     }

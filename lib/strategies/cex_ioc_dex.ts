@@ -1,14 +1,17 @@
 import { IStrategy } from '../strategy'
-import { Networks, Token, ISwapper, IContext, DEXSwapper } from '../../lib/swapper'
+import { Token, ISwapper, DEXSwapper } from '../../lib/swapper'
+import { IContext } from "../context"
+import { Exchange } from 'ccxt'
+
 import { CronJob } from 'cron'
 
 import { logger } from '../logger'
 //import { BigNumber } from 'ethers'
 
-import BigNumber from "bignumber.js";
-import { SwapSide } from 'paraswap-core';
+import { SwapSide } from 'paraswap-core'
 
-import fs from 'fs';
+import fs from 'fs'
+import _ from 'lodash'
 
 export class ArbitragePath {
 
@@ -40,10 +43,6 @@ export class Strategy implements IStrategy {
     protected constructor(context: IContext) {
         this.context = context
         this.swapper = new DEXSwapper(this.context)
-    }
-
-    public run(): void {
-        console.log('Starting cronjob repeating every second');
         this.job = new CronJob(
             `*/${this.context.aggregatorScanInterval} * * * * *`,
             () => {
@@ -52,7 +51,21 @@ export class Strategy implements IStrategy {
             null,
             true,
             'Europe/Kiev',
+            undefined,
+            false // don't run on init
         );
+    }
+
+    public run(): void {
+        this.context.build()
+            .then(result => {
+                this.context = Object.assign(this.context, result)
+                logger.info('Starting cronjob repeating every second');
+                return result
+            })
+            .then(result => {
+                this.job.start()
+            })
 
         process.on('SIGTERM', () => {
             logger.debug('Shutting down')
@@ -62,53 +75,62 @@ export class Strategy implements IStrategy {
         });
 
     }
+
     private async runPrivate(): Promise<void> {
         this.iteration++
-        //const tx = await getSwapTransaction({ srcToken, destToken, srcAmount, networkID, slippage, userAddress, swapper });
-        let pair = this.context.market.split('/')
-        let srcToken: Token = await this.swapper.getToken(pair[0])
-        let destToken: Token = await this.swapper.getToken(pair[1])
-        let srcAmount = '0.1'
-        let userAddress = this.swapper.getSenderAddress()
-        let swapSide = SwapSide.SELL
-        const market = `${srcToken.symbol}/${destToken.symbol}`
-        Promise.all([
-            this.swapper.getRate({ srcToken, destToken, srcAmount, userAddress })
-                .catch((error) => { logger.error(error) })
-                .then((swapSideSELL) => {
-                    swapSide = SwapSide.BUY // changing direction
-                    // return this.swapper.getRate({ srcToken, destToken, srcAmount, userAddress, swapSide })
-                    //     .catch((error) => { logger.error(error) })
-                    //     .then((swapSideBUY) => {
-                    //         return { swapSideSELL, swapSideBUY }
-                    //     })
-                    const swapSideBUY = {}
-                    return { swapSideSELL, swapSideBUY }
-                }),
-            ...(this.context.exchanges.map(async (it) => it.fetchTickers([market])
-                .catch(err => {
-                    return {
-                        ERROR: err.message
-                    }
-                })
-                .then((it) => it) // enforcing promise execution
-            ))
-        ]).then((rates) => {
-            const dexRates = rates.slice(0, 1)
-            const cexRates = rates.slice(1)
-            return {
-                dexRates,
-                cexRates
-            }
-        }).then((result) => {
-            fs.writeFileSync(`./.data/${Date.now()}.json`, JSON.stringify(result, null, 2))
-            return result
-        })
+        logger.debug(this.iteration)
+        //         //const tx = await getSwapTransaction({ srcToken, destToken, srcAmount, networkID, slippage, userAddress, swapper });
+        //         let srcToken: Token = this.context.tokensOfInterest[0]
+        //         let srcAmount: string = this.context.minVolume.toString()
+        //         let userAddress = this.swapper.getSenderAddress()
+        //         let swapSide = SwapSide.SELL
+
+        //         Promise.all([
+        //             this.context.stablecoins.map(sc => {
+        //                 let destTokens: string[][] = this.context.tokensOfInterest.map(it => [it.symbol, sc.symbol])
+        //                 const market = `${srcToken.symbol}/${destToken.symbol}`
+
+        //                 logger.debug('getRate params:', { srcToken, destToken, srcAmount, userAddress })
+        //                 this.swapper.getRate({ srcToken, destToken, srcAmount, userAddress })
+        //                     .catch((error) => { logger.error('getRate failed', error) })
+        //                     .then((swapSideSELL) => {
+        //                         swapSide = SwapSide.BUY // changing direction
+        //                         // return this.swapper.getRate({ srcToken, destToken, srcAmount, userAddress, swapSide })
+        //                         //     .catch((error) => { logger.error(error) })
+        //                         //     .then((swapSideBUY) => {
+        //                         //         return { swapSideSELL, swapSideBUY }
+        //                         //     })
+        //                         const swapSideBUY = {}
+        //                         return { swapSideSELL, swapSideBUY }
+        //                     }),
+        //             ...(this.context.exchanges.map(async (it) => it.fetchTickers([market])
+        //                         .catch(err => {
+        //                             return {
+        //                                 ERROR: err.message
+        //                             }
+        //                         })
+        //                         .then((it) => it) // enforcing promise execution
+        //                     ))
+        //     })
+
+        //         ]).then((rates) => {
+        //     const dexRates = rates.slice(0, 1)
+        //     const cexRates = rates.slice(1)
+        //     return {
+        //         dexRates,
+        //         cexRates
+        //     }
+        // }).then((result) => {
+        //     //fs.writeFileSync(`./.data / ${ Date.now() }.json`, JSON.stringify(result, null, 2))
+        //     return result
+        // })
     }
 
-    public waitForShutdown(): void {
+    public async waitForShutdown() {
+        const sleep = require('util').promisify(setTimeout)
         while (this.isShuttingDown === false) {
-            process.nextTick((rest) => console.log('Ticking...', ...rest))
+            logger.info(this.isShuttingDown)
+            await sleep(500)
         }
     }
 
@@ -118,9 +140,7 @@ export class Strategy implements IStrategy {
         this.job.stop();
     }
 
-    public static newInstance(context): IStrategy {
+    public static newInstance(context: IContext): IStrategy {
         return new Strategy(context) as IStrategy
     }
 }
-
-
