@@ -109,3 +109,5 @@ dist
 /package-lock.json
 *.debug
 /.data/*.json
+/*_markets.json
+/.vscode/
