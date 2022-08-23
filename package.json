@@ -7,6 +7,7 @@
     "doc": "docs"
   },
   "scripts": {
+    "start:inspect": "npx nodemon --inspect src/app.ts",
     "test": "jest"
   },
   "repository": {
