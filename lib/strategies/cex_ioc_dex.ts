@@ -141,6 +141,6 @@ export class Strategy implements IStrategy {
     }
 
     public static newInstance(context: IContext): IStrategy {
-        return new Strategy(context) as IStrategy
+        return new Strategy(context)
     }
 }

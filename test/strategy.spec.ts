@@ -18,6 +18,9 @@ describe("StrategyRunner", () => {
     let exchanges: Exchange[]
     let killJob: CronJob
     let cex = process.env.EXCHANGES?.split(' ')
+    const log = logger.debug.bind(logger)
+    const error = logger.error.bind(logger)
+
     const tokensOfInterest: Token[] = ConfigHelper.parseTokensString(process.env.TOKENS_OF_INTEREST)
     const stablecoins: Token[] = ConfigHelper.parseTokensString(process.env.STABLECOINS)
     const network: NetworkID = 56 // BSC
@@ -40,9 +43,10 @@ describe("StrategyRunner", () => {
             return new ccxt[cex_name]({
                 apiKey: process.env[`${cex_name_upper}_API_KEY`],
                 secret: process.env[`${cex_name_upper}_SECRET`],
-                password: process.env[`${cex_name_upper}_PASSWORD`]
+                password: process.env[`${cex_name_upper}_PASSWORD`],
+                enableRateLimit: process.env['ENABLE_RATE_LIMIT']
             })
-        })
+        });
         context = new Context({
             exchanges,
             tokensOfInterest,
@@ -55,11 +59,12 @@ describe("StrategyRunner", () => {
             gasFee,
             userAddress,
             minVolume
-        } as any)
-    });
+        } as IContext)
+    })
 
     test('runStrategy', async () => {
         logger.info('Running `cex_ioc_dex` strategy');
+
         const strategy = StrategyRunner.run(context, 'cex_ioc_dex')
         killJob = new CronJob('*/5 * * * * *',
             () => {
@@ -70,6 +75,26 @@ describe("StrategyRunner", () => {
             null,
             true,
             'Europe/Kiev')
+
+
         return strategy.waitForShutdown();
+
     }, 8000)
+
+    test('rateLimit', async () => {
+        const ms = Date.now()
+        return Promise.all(exchanges.map(async (it) => {
+            const ms = Date.now()
+            return it
+                .fetchTickers(['BTC/USDT'])
+                .catch(error)
+                .then((tickers) => log(`fetched from ${it.name} in ${Date.now() - ms} ms. ${JSON.stringify(tickers)}`))
+        }))
+            .catch(error)
+            .then(() => log(`Fetched all in ${Date.now() - ms} ms`))
+    })
+
+    // test('cex-ioc-dex', async () => {
+    //     fail('Not implemented')
+    // })
 })

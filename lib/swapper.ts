@@ -96,6 +96,7 @@ export class DEXSwapper implements ISwapper {
     constructor(context: IContext, apiURL?: string) {
         // initializing tokens
         this.context = context
+        logger.debug(context)
         this.paraswap = new ParaSwap(
             this.context.network,
             apiURL,

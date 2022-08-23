@@ -105,7 +105,7 @@ if (Object.getOwnPropertyNames(argv).length > 2) {
 ${JSON.stringify(argv['tokensOfInterest'].map((it: Token) => ({ [it.symbol]: it.address })))}`)
     logger.info('Using these stablecoins: ' + JSON.stringify(argv['stablecoins']))
 
-    StrategyRunner.run(new Context({ exchanges, ...argv } as any), 'cex-ioc-dex')
+    StrategyRunner.run(new C ontext({ exchanges, ...argv } as any), 'cex-ioc-dex')
 }
 else
     yargs.help()
