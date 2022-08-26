@@ -95,7 +95,8 @@ if (Object.getOwnPropertyNames(argv).length > 2) {
         return new ccxt[cex_name]({
             apiKey: process.env[`${cex_name_upper}_API_KEY`],
             secret: process.env[`${cex_name_upper}_SECRET`],
-            password: process.env[`${cex_name_upper}_PASSWORD`]
+            password: process.env[`${cex_name_upper}_PASSWORD`],
+            enableRateLimit: true
         })
     })
     argv['tokensOfInterest'] = ConfigHelper.parseTokensString(argv['tokensOfInterest'])
@@ -105,7 +106,7 @@ if (Object.getOwnPropertyNames(argv).length > 2) {
 ${JSON.stringify(argv['tokensOfInterest'].map((it: Token) => ({ [it.symbol]: it.address })))}`)
     logger.info('Using these stablecoins: ' + JSON.stringify(argv['stablecoins']))
 
-    StrategyRunner.run(new C ontext({ exchanges, ...argv } as any), 'cex-ioc-dex')
+    StrategyRunner.run(new Context({ exchanges, ...argv } as any), 'cex-ioc-dex')
 }
 else
     yargs.help()
