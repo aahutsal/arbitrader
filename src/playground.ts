@@ -33,15 +33,15 @@ var promiseThrottle = new PromiseThrottle({
 
 let now: number = undefined
 
-let throttledParaswap = marketsOfInterest.map(async (sc) => {
+let throttledParaswap = () => marketsOfInterest.map(async (sc) => {
     const srcToken = _.find(tokensOfInterest, (t => t.symbol === sc.split('/')[0]))?.address
     const destToken = _.find(stablecoins, (s => s.symbol === sc.split('/')[1]))?.address
     const srcAmount = "500"
     return {
         [sc]: {
             bid: await promiseThrottle.add(async () => paraswap.getRate(
-                srcToken,
                 destToken,
+                srcToken,
                 new BigNumber(srcAmount)
                     .times(10 ** 18)
                     .toFixed(0),
@@ -51,14 +51,9 @@ let throttledParaswap = marketsOfInterest.map(async (sc) => {
                 undefined, 18, 18)
                 .catch(err => ({ sc, srcToken, destToken, err }))
                 .then(rate => ({ sc, srcToken, destToken, rate }))
-                .then(obj => {
-                    //console.log(Date.now(), obj)
-                    return {
-                        //obj,
-                        price: new BigNumber((obj.rate as OptimalRate).destAmount)
-                            .div((obj.rate as OptimalRate).srcAmount).toNumber()
-                    }
-                })
+                .then(obj => new BigNumber((obj.rate as OptimalRate).destAmount)
+                    .div((obj.rate as OptimalRate).srcAmount).toNumber()
+                )
             ),
             ask: await promiseThrottle.add(async () => paraswap.getRate(
                 srcToken,
@@ -72,13 +67,8 @@ let throttledParaswap = marketsOfInterest.map(async (sc) => {
                 undefined, 18, 18)
                 .catch(err => ({ sc, srcToken, destToken, err }))
                 .then(rate => ({ sc, srcToken, destToken, rate }))
-                .then(obj => {
-                    return {
-                        //obj,
-                        price: new BigNumber((obj.rate as OptimalRate).destAmount)
-                            .div((obj.rate as OptimalRate).srcAmount).toNumber()
-                    }
-                })
+                .then(obj => new BigNumber((obj.rate as OptimalRate).destAmount)
+                    .div((obj.rate as OptimalRate).srcAmount).toNumber())
             )
         }
     }
@@ -106,19 +96,19 @@ const singleCycle = () => exchangesP.then((exchanges: Exchange[]) => {
                         })))
                     )
             ),
-        Promise.all(throttledParaswap).then(arr => _.assign({ "ex": "paraswap" }, ...arr))
+        Promise.all(throttledParaswap()).then(arr => _.assign({ "ex": "paraswap" }, ...arr))
         ])
 })
     .then(all => {
         const minAsk = _.minBy(all, (o) => {
             const m = _.keys(o)[1]
             //log(o[m])
-            return o[m].ask.price
+            return o[m].ask
         })
         const maxBid = _.maxBy(all, (o) => {
             const m = _.keys(o)[1]
             //log(o[m])
-            return o[m].bid.price
+            return o[m].bid
         })
 
         const mbk = _.keys(maxBid)[1]
