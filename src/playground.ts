@@ -20,6 +20,7 @@ const exchangesP: Promise<Exchange[]> =
 
 let tokensOfInterest: Token[] = ConfigHelper.parseTokensString("WAL,0xd306c124282880858a634e7396383ae58d37c79c,18,56") /// OLE,0xa865197A84E780957422237B5D152772654341F3,18,56")
 
+const DEX_DEST_TOKEN = "BUSD"
 const paraswap = new ParaSwap(56 as NetworkID)
 
 log('Tokens of interest', tokensOfInterest)
@@ -30,47 +31,48 @@ let promiseThrottle = undefined
 
 let now: number = undefined
 
-let throttledParaswap = () => marketsOfInterest.map(async (sc) => {
-    const srcToken = _.find(tokensOfInterest, (t => t.symbol === sc.split('/')[0]))?.address
-    const destToken = _.find(stablecoins, (s => s.symbol === sc.split('/')[1]))?.address
-    const srcAmount = "500"
-    return {
-        [sc]: {
-            bid: await promiseThrottle.add(async () => paraswap.getRate(
-                srcToken,
-                destToken,
-                new BigNumber(srcAmount)
-                    .times(10 ** 18)
-                    .toFixed(0),
-                //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
-                undefined,
-                SwapSide.SELL,
-                undefined, 18, 18)
-                .catch(err => ({ sc, srcToken, destToken, err }))
-                .then(rate => ({ sc, srcToken, destToken, rate }))
-                .then(obj => new BigNumber((obj.rate as OptimalRate).destAmount)
-                    .div((obj.rate as OptimalRate).srcAmount).toNumber())
-            ),
-            ask: await promiseThrottle.add(async () => paraswap.getRate(
-                destToken,
-                srcToken,
-                new BigNumber(srcAmount)
-                    .times(10 ** 18)
-                    .toFixed(0),
-                undefined,
-                //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
-                SwapSide.BUY,
-                undefined, 18, 18)
-                .catch(err => ({ sc, srcToken, destToken, err }))
-                .then(rate => ({ sc, srcToken, destToken, rate }))
-                .then(obj => 1 / new BigNumber((obj.rate as OptimalRate).destAmount)
-                    .div((obj.rate as OptimalRate).srcAmount).toNumber()
-                )
-            ),
+let throttledParaswap = () => // marketsOfInterest
+    [tokensOfInterest[0].symbol + '/' + DEX_DEST_TOKEN].map(async (sc) => {
+        const srcToken = _.find(tokensOfInterest, (t => t.symbol === sc.split('/')[0]))?.address
+        const destToken = _.find(stablecoins, (s => s.symbol === sc.split('/')[1]))?.address
+        const srcAmount = "500"
+        return {
+            [sc]: {
+                bid: await promiseThrottle.add(async () => paraswap.getRate(
+                    srcToken,
+                    destToken,
+                    new BigNumber(srcAmount)
+                        .times(10 ** 18)
+                        .toFixed(0),
+                    //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
+                    undefined,
+                    SwapSide.SELL,
+                    undefined, 18, 18)
+                    .catch(err => ({ sc, srcToken, destToken, err }))
+                    .then(rate => ({ sc, srcToken, destToken, rate }))
+                    .then(obj => new BigNumber((obj.rate as OptimalRate).destAmount)
+                        .div((obj.rate as OptimalRate).srcAmount).toNumber())
+                ),
+                ask: await promiseThrottle.add(async () => paraswap.getRate(
+                    destToken,
+                    srcToken,
+                    new BigNumber(srcAmount)
+                        .times(10 ** 18)
+                        .toFixed(0),
+                    undefined,
+                    //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
+                    SwapSide.BUY,
+                    undefined, 18, 18)
+                    .catch(err => ({ sc, srcToken, destToken, err }))
+                    .then(rate => ({ sc, srcToken, destToken, rate }))
+                    .then(obj => 1 / new BigNumber((obj.rate as OptimalRate).destAmount)
+                        .div((obj.rate as OptimalRate).srcAmount).toNumber()
+                    )
+                ),
 
+            }
         }
-    }
-})
+    })
 const singleCycle = () => exchangesP.then((exchanges: Exchange[]) => {
     now = Date.now()
 
@@ -99,7 +101,9 @@ const singleCycle = () => exchangesP.then((exchanges: Exchange[]) => {
                         })))
                     )
             ),
-        Promise.all(throttledParaswap()).then(arr => _.assign({ "ex": "paraswap" }, ...arr))
+        Promise.all(throttledParaswap())
+            .then(arr => _.assign({ "ex": "paraswap" }, ...arr))
+            .then((all) => { log(all); return all })
         ])
 })
     .then(all => {
