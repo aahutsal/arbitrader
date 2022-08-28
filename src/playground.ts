@@ -26,10 +26,7 @@ log('Tokens of interest', tokensOfInterest)
 
 let marketsOfInterest: any[] = _.flatten(tokensOfInterest.map(token => stablecoins.map(sc => [token.symbol, sc.symbol].join('/'))))
 log('Markets of interest', marketsOfInterest)
-var promiseThrottle = new PromiseThrottle({
-    requestsPerSecond: 6,           // up to 1 request per second
-    promiseImplementation: Promise  // the Promise library you are using
-});
+let promiseThrottle = undefined
 
 let now: number = undefined
 
@@ -40,22 +37,6 @@ let throttledParaswap = () => marketsOfInterest.map(async (sc) => {
     return {
         [sc]: {
             bid: await promiseThrottle.add(async () => paraswap.getRate(
-                destToken,
-                srcToken,
-                new BigNumber(srcAmount)
-                    .times(10 ** 18)
-                    .toFixed(0),
-                undefined,
-                //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
-                SwapSide.BUY,
-                undefined, 18, 18)
-                .catch(err => ({ sc, srcToken, destToken, err }))
-                .then(rate => ({ sc, srcToken, destToken, rate }))
-                .then(obj => new BigNumber((obj.rate as OptimalRate).destAmount)
-                    .div((obj.rate as OptimalRate).srcAmount).toNumber()
-                )
-            ),
-            ask: await promiseThrottle.add(async () => paraswap.getRate(
                 srcToken,
                 destToken,
                 new BigNumber(srcAmount)
@@ -69,13 +50,35 @@ let throttledParaswap = () => marketsOfInterest.map(async (sc) => {
                 .then(rate => ({ sc, srcToken, destToken, rate }))
                 .then(obj => new BigNumber((obj.rate as OptimalRate).destAmount)
                     .div((obj.rate as OptimalRate).srcAmount).toNumber())
-            )
+            ),
+            ask: await promiseThrottle.add(async () => paraswap.getRate(
+                destToken,
+                srcToken,
+                new BigNumber(srcAmount)
+                    .times(10 ** 18)
+                    .toFixed(0),
+                undefined,
+                //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
+                SwapSide.BUY,
+                undefined, 18, 18)
+                .catch(err => ({ sc, srcToken, destToken, err }))
+                .then(rate => ({ sc, srcToken, destToken, rate }))
+                .then(obj => 1 / new BigNumber((obj.rate as OptimalRate).destAmount)
+                    .div((obj.rate as OptimalRate).srcAmount).toNumber()
+                )
+            ),
+
         }
     }
 })
 const singleCycle = () => exchangesP.then((exchanges: Exchange[]) => {
     now = Date.now()
+
     fs.mkdirSync(`./.data/${now}`)
+    promiseThrottle = new PromiseThrottle({
+        requestsPerSecond: 6,           // up to 1 request per second
+        promiseImplementation: Promise  // the Promise library you are using
+    })
     return Promise.all(
         [...exchanges
             .filter((ex: Exchange) => ex.hasFetchTickers)
@@ -114,9 +117,9 @@ const singleCycle = () => exchangesP.then((exchanges: Exchange[]) => {
         const mbk = _.keys(maxBid)[1]
         const mak = _.keys(minAsk)[1]
         if (maxBid[mbk].bid > minAsk[mak].ask) {
-            console.log('Arbitrage:', JSON.stringify({ maxBid, minAsk, mbk, mak }, null, 2))
+            console.log('Arbitrage:', { maxBid, minAsk, mbk, mak })
         } else {
-            console.log('No Arbitrage found:', JSON.stringify({ maxBid, minAsk }, null, 2))
+            console.log('No Arbitrage found:', { maxBid, minAsk })
         }
     })
 // fs.writeFileSync('./.data/tickers_' + Date.now() + '.json',
