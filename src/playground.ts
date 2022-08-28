@@ -1,9 +1,22 @@
-import BigNumber from "bignumber.js"
 import ccxt, { Exchange } from "ccxt"
 import { NetworkID, ParaSwap, SwapSide, Token } from "paraswap"
 import { OptimalRate } from 'paraswap-core'
 import { ConfigHelper } from '../lib/config-helper'
 import PromiseThrottle from 'promise-throttle'
+
+
+import axios from 'axios';
+import { ethers, Wallet } from 'ethers';
+import {
+    constructPartialSDK,
+    constructFullSDK,
+    constructGetAdapters,
+    constructEthersContractCaller,
+    constructAxiosFetcher,
+} from '@paraswap/sdk'
+
+
+import BigNumber from "bignumber.js"
 
 import _ from 'lodash'
 import fs from 'fs'
@@ -18,10 +31,11 @@ const exchangesP: Promise<Exchange[]> =
             return exchange
         }))
 
-let tokensOfInterest: Token[] = ConfigHelper.parseTokensString("WAL,0xd306c124282880858a634e7396383ae58d37c79c,18,56") /// OLE,0xa865197A84E780957422237B5D152772654341F3,18,56")
+//let tokensOfInterest: Token[] = ConfigHelper.parseTokensString("WAL,0xd306c124282880858a634e7396383ae58d37c79c,18,56"
+let tokensOfInterest: Token[] = ConfigHelper.parseTokensString("OLE,0xa865197A84E780957422237B5D152772654341F3,18,56")
 
 const DEX_DEST_TOKEN = "BUSD"
-const paraswap = new ParaSwap(56 as NetworkID)
+
 
 log('Tokens of interest', tokensOfInterest)
 
@@ -30,39 +44,75 @@ log('Markets of interest', marketsOfInterest)
 let promiseThrottle = undefined
 
 let now: number = undefined
+const AMOUNT = "500"
+const USER_ADDRESS = "0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE"
+
+const provider = new ethers.providers.JsonRpcProvider('https://bsc-dataseed.binance.org/')
+//const wallet = ethers.Wallet.fromMnemonic("leg spirit cycle write point giraffe opinion exile snake shoot sure have")
+
+const wallet = new Wallet(
+    ethers.Wallet.fromMnemonic("leg spirit cycle write point giraffe opinion exile snake shoot sure have").privateKey,
+    provider
+)
+log("Address:", wallet.address)
+
+wallet
+const fetcher = constructAxiosFetcher(axios);
+console.log(provider.getSigner())
+const contractCaller = constructEthersContractCaller({
+    ethersProviderOrSigner: wallet,
+    EthersContract: ethers.Contract,
+}, wallet.address);
+
+const paraswap = constructFullSDK({
+    network: 56,
+    fetcher,
+    contractCaller,
+});
+
+paraswap.getAllowance(USER_ADDRESS, tokensOfInterest[0].address)
+    .catch(err => log(err))
+    .then(allowance =>
+        paraswap.approveToken(AMOUNT, tokensOfInterest[0].address).then(txHash => ({ allowance, txHash })))
+    .then(({ allowance, txHash }) => {
+        log('Allowance,', allowance)
+        log('txHash', txHash)
+    })
 
 let throttledParaswap = () => // marketsOfInterest
     [tokensOfInterest[0].symbol + '/' + DEX_DEST_TOKEN].map(async (sc) => {
         const srcToken = _.find(tokensOfInterest, (t => t.symbol === sc.split('/')[0]))?.address
         const destToken = _.find(stablecoins, (s => s.symbol === sc.split('/')[1]))?.address
-        const srcAmount = "500"
+        const srcAmount = AMOUNT
         return {
             [sc]: {
-                bid: await promiseThrottle.add(async () => paraswap.getRate(
+                bid: await promiseThrottle.add(async () => paraswap.getRate({
                     srcToken,
                     destToken,
-                    new BigNumber(srcAmount)
+                    amount: new BigNumber(srcAmount)
                         .times(10 ** 18)
                         .toFixed(0),
-                    //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
-                    undefined,
-                    SwapSide.SELL,
-                    undefined, 18, 18)
+                    userAddress: USER_ADDRESS,
+                    side: SwapSide.SELL,
+                    srcDecimals: 18,
+                    destDecimals: 18
+                })
                     .catch(err => ({ sc, srcToken, destToken, err }))
                     .then(rate => ({ sc, srcToken, destToken, rate }))
                     .then(obj => new BigNumber((obj.rate as OptimalRate).destAmount)
                         .div((obj.rate as OptimalRate).srcAmount).toNumber())
                 ),
-                ask: await promiseThrottle.add(async () => paraswap.getRate(
-                    destToken,
-                    srcToken,
-                    new BigNumber(srcAmount)
+                ask: await promiseThrottle.add(async () => paraswap.getRate({
+                    destToken: srcToken,
+                    srcToken: destToken,
+                    amount: new BigNumber(srcAmount)
                         .times(10 ** 18)
                         .toFixed(0),
-                    undefined,
-                    //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
-                    SwapSide.BUY,
-                    undefined, 18, 18)
+                    userAddress: USER_ADDRESS,
+                    side: SwapSide.BUY,
+                    srcDecimals: 18,
+                    destDecimals: 18
+                })
                     .catch(err => ({ sc, srcToken, destToken, err }))
                     .then(rate => ({ sc, srcToken, destToken, rate }))
                     .then(obj => 1 / new BigNumber((obj.rate as OptimalRate).destAmount)
@@ -121,9 +171,10 @@ const singleCycle = () => exchangesP.then((exchanges: Exchange[]) => {
         const mbk = _.keys(maxBid)[1]
         const mak = _.keys(minAsk)[1]
         if (maxBid[mbk].bid > minAsk[mak].ask) {
-            console.log('Arbitrage:', { maxBid, minAsk, mbk, mak })
+            log(`Arbitrage:(${(maxBid[mbk].bid - minAsk[mak].ask) / maxBid[mbk].bid * 100}%)`, { maxBid, minAsk, mbk, mak })
+
         } else {
-            console.log('No Arbitrage found:', { maxBid, minAsk })
+            log('No Arbitrage found:', { maxBid, minAsk })
         }
     })
 // fs.writeFileSync('./.data/tickers_' + Date.now() + '.json',
