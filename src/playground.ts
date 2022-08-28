@@ -31,7 +31,9 @@ var promiseThrottle = new PromiseThrottle({
     promiseImplementation: Promise  // the Promise library you are using
 });
 
-const throttledParaswap = marketsOfInterest.map(async (sc) => {
+let now: number = undefined
+
+let throttledParaswap = marketsOfInterest.map(async (sc) => {
     const srcToken = _.find(tokensOfInterest, (t => t.symbol === sc.split('/')[0]))?.address
     const destToken = _.find(stablecoins, (s => s.symbol === sc.split('/')[1]))?.address
     const srcAmount = "500"
@@ -43,13 +45,19 @@ const throttledParaswap = marketsOfInterest.map(async (sc) => {
                 new BigNumber(srcAmount)
                     .times(10 ** 18)
                     .toFixed(0),
-                "0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE", SwapSide.BUY, undefined, 18, 18)
+                undefined,
+                //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
+                SwapSide.BUY,
+                undefined, 18, 18)
                 .catch(err => ({ sc, srcToken, destToken, err }))
                 .then(rate => ({ sc, srcToken, destToken, rate }))
                 .then(obj => {
                     //console.log(Date.now(), obj)
-                    return new BigNumber((obj.rate as OptimalRate).destAmount)
-                        .div((obj.rate as OptimalRate).srcAmount).toNumber()
+                    return {
+                        //obj,
+                        price: new BigNumber((obj.rate as OptimalRate).destAmount)
+                            .div((obj.rate as OptimalRate).srcAmount).toNumber()
+                    }
                 })
             ),
             ask: await promiseThrottle.add(async () => paraswap.getRate(
@@ -58,25 +66,37 @@ const throttledParaswap = marketsOfInterest.map(async (sc) => {
                 new BigNumber(srcAmount)
                     .times(10 ** 18)
                     .toFixed(0),
-                "0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE", SwapSide.SELL, undefined, 18, 18)
+                //"0xD2236a1ccd4ced06E16eb1585C8c474969A6CcfE",
+                undefined,
+                SwapSide.SELL,
+                undefined, 18, 18)
                 .catch(err => ({ sc, srcToken, destToken, err }))
                 .then(rate => ({ sc, srcToken, destToken, rate }))
                 .then(obj => {
-                    //console.log(Date.now(), obj)
-                    return new BigNumber((obj.rate as OptimalRate).destAmount).div((obj.rate as OptimalRate).srcAmount).toNumber()
+                    return {
+                        //obj,
+                        price: new BigNumber((obj.rate as OptimalRate).destAmount)
+                            .div((obj.rate as OptimalRate).srcAmount).toNumber()
+                    }
                 })
             )
         }
     }
 })
-const singleCycle = () => exchangesP.then((exchanges: Exchange[]) =>
-    Promise.all(
+const singleCycle = () => exchangesP.then((exchanges: Exchange[]) => {
+    now = Date.now()
+    fs.mkdirSync(`./.data/${now}`)
+    return Promise.all(
         [...exchanges
             .filter((ex: Exchange) => ex.hasFetchTickers)
             .filter((ex: Exchange) => _.intersection(_.keys(ex.markets), marketsOfInterest).length > 0)
             .map(ex =>
                 ex.fetchTickers(_.intersection(_.keys(ex.markets), marketsOfInterest))
                     .catch(err => ({ err }))
+                    .then(tickers => {
+                        fs.writeFileSync(`./.data/${now}/tickers_${ex.id}.json`, JSON.stringify(tickers, null, 2))
+                        return tickers
+                    })
                     .then((tickers) => _.assign({ ex: ex.id }, ...
                         Object.getOwnPropertyNames(tickers).map((m: string) => ({
                             [m]: {
@@ -87,25 +107,26 @@ const singleCycle = () => exchangesP.then((exchanges: Exchange[]) =>
                     )
             ),
         Promise.all(throttledParaswap).then(arr => _.assign({ "ex": "paraswap" }, ...arr))
-        ]))
+        ])
+})
     .then(all => {
         const minAsk = _.minBy(all, (o) => {
             const m = _.keys(o)[1]
-            log(o[m])
-            return o[m].ask
+            //log(o[m])
+            return o[m].ask.price
         })
         const maxBid = _.maxBy(all, (o) => {
             const m = _.keys(o)[1]
-            log(o[m])
-            return o[m].bid
+            //log(o[m])
+            return o[m].bid.price
         })
 
         const mbk = _.keys(maxBid)[1]
         const mak = _.keys(minAsk)[1]
         if (maxBid[mbk].bid > minAsk[mak].ask) {
-            console.log('Arbitrage:', { maxBid, minAsk, mbk, mak })
+            console.log('Arbitrage:', JSON.stringify({ maxBid, minAsk, mbk, mak }, null, 2))
         } else {
-            console.log('No Arbitrage found:', { maxBid, minAsk })
+            console.log('No Arbitrage found:', JSON.stringify({ maxBid, minAsk }, null, 2))
         }
     })
 // fs.writeFileSync('./.data/tickers_' + Date.now() + '.json',
